@@ -1,6 +1,6 @@
 //Temporary
 'use client'
-import { useSearchParams } from "next/navigation";
+
 import Link from "next/link";
 import { ProductsType } from "../types";
 import Categories from "./Categories";
