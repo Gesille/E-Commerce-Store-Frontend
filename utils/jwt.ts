@@ -1,6 +1,8 @@
-require("dotenv").config();
+import dotend from "dotenv";
+dotend.config();
 import { Response } from "express";
-import { IUser } from "../models/user.model";
+import { IUser } from "../models/user.model.js";
+
 // import { redis } from "./redis";
 
 interface ITokenOptions {
@@ -9,7 +11,9 @@ interface ITokenOptions {
   httpOnly: boolean;
   sameSite: 'lax' | 'strict' | 'none' | undefined;
   secure?: boolean;
+  domain?: string;
 }
+
 
 //pares environment variables to integrates with fallback values
  const accessTokenExpire = parseInt(
@@ -20,6 +24,11 @@ const refreshTokenExpire = parseInt(
   process.env.REFRESH_TOKEN_EXPIRE || '1200',
   10
 );
+const getCookieDomain = (): string | undefined => {
+  // in development, return undefined — browsers share cookies 
+  // across localhost ports automatically
+  return undefined;
+};
 
 //option for cookies
 export const accessTokenOptions: ITokenOptions = {
@@ -27,12 +36,17 @@ export const accessTokenOptions: ITokenOptions = {
   maxAge: accessTokenExpire * 60 * 60 * 1000,
   httpOnly: true,
   sameSite: "lax",
+  secure: false, 
+  domain: getCookieDomain(),
+  
 };
 export const refreshTokenOptions: ITokenOptions = {
   expires: new Date(Date.now() + refreshTokenExpire * 24 * 60 * 60 * 1000),
   maxAge: refreshTokenExpire * 24 * 60 * 60 * 1000,
   httpOnly: true,
-  sameSite: "lax",//مهم جداً لتعزيز أمان التطبيق وحماية من هجمات  CSRF
+  sameSite: "lax",
+  secure: false, 
+  domain: getCookieDomain(),
 };
 
 export const sendToken = (user: IUser, statusCode: number, res: Response) => {

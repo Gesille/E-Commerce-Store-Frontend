@@ -1,5 +1,6 @@
 import mongoose, { Document, Model, Schema } from "mongoose";
-require("dotenv").config();
+import dotenv from "dotenv";
+dotenv.config();
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
@@ -8,7 +9,6 @@ const emailRegexPattern: RegExp = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const ROLES = {
   USER: "user",
   ADMIN: "admin",
-  TEACHER: "teacher",
 };
 
 export interface IUser extends Document {
@@ -21,14 +21,24 @@ export interface IUser extends Document {
   };
   role: string;
   isVerified: boolean;
-  courses: Array<{ courseId: string }>;
-  books: Array<{
-    _id: number;bookId:string
-}>
+  phone?: string;
+
+  address?: {
+    street?: string;
+    city?: string;
+    country?: string;
+    zip?: string;
+  };
+  orders: Array<{
+    _id: number;
+    orderId: string;
+  }>;
+  odooPartnerId: number;
   comparePassword: (password: string) => Promise<boolean>;
   SignAccessToken: () => string;
   SignRefreshToken: () => string;
   hasRole: (roles: string[]) => boolean;
+  createdAt:Date
 }
 
 const userSchema: Schema<IUser> = new mongoose.Schema(
@@ -66,16 +76,23 @@ const userSchema: Schema<IUser> = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
-    courses: [
-      {
-        courseId: String,
-      },
-    ],
-    books:[
-      {bookId :String}
-    ]
+    phone: {
+      type: String,
+    },
+
+    address: {
+      street: String,
+      city: String,
+      country: String,
+      zip: String,
+    },
+    orders: [{ orderId: String }],
+    odooPartnerId: {
+      type: Number,
+    },
+   
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 //Mash Password before saving
@@ -90,27 +107,25 @@ userSchema.pre<IUser>("save", async function (next) {
 
 //sign access token
 userSchema.methods.SignAccessToken = function () {
-
- const accessTokenSecret = process.env.ACCESS_TOKEN;
+  const accessTokenSecret = process.env.ACCESS_TOKEN;
   if (!accessTokenSecret) {
-    throw new Error('ACCESS_TOKEN is not defined');
+    throw new Error("ACCESS_TOKEN is not defined");
   }
   return jwt.sign({ id: this._id }, accessTokenSecret, { expiresIn: "5m" });
-
 };
 
 //signrefresh token
 userSchema.methods.SignRefreshToken = function () {
   const refreshTokenSecret = process.env.REFRESH_TOKEN;
   if (!refreshTokenSecret) {
-    throw new Error('REFRESH_TOKEN is not defined');
+    throw new Error("REFRESH_TOKEN is not defined");
   }
   return jwt.sign({ id: this._id }, refreshTokenSecret, { expiresIn: "3d" });
 };
 
 //compare password
 userSchema.methods.comparePassword = async function (
-  enteredPassword: string
+  enteredPassword: string,
 ): Promise<boolean> {
   return await bcrypt.compare(enteredPassword, this.password);
 };

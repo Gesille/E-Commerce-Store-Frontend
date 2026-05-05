@@ -1,6 +1,6 @@
 import mongoose, { Document, Schema } from "mongoose";
 
-// تعريف واجهة TypeScript لنوع البيانات
+
 export interface IAddress extends Document {
   user: mongoose.Types.ObjectId;
   name: string;
@@ -13,11 +13,10 @@ export interface IAddress extends Document {
   type: "home" | "work" | "other";
 }
 
-// تعريف المخطط باستخدام Mongoose
 const AddressSchema: Schema = new mongoose.Schema({
   user: {
     type: Schema.Types.ObjectId,
-    ref: "User", // تأكد من أن اسم الموديل صحيح
+    ref: "User", 
     required: true,
   },
   name: {
@@ -29,7 +28,7 @@ const AddressSchema: Schema = new mongoose.Schema({
     type: String,
     required: true,
     validate: {
-      validator: (value: string) => /^\d{10}$/.test(value), // التحقق من رقم الهاتف
+      validator: (value: string) => /^\d{10}$/.test(value), 
       message: "Contact number must be exactly 10 digits.",
     },
   },
@@ -53,18 +52,18 @@ const AddressSchema: Schema = new mongoose.Schema({
     type: String,
     required: true,
     validate: {
-      validator: (value: string) => /^\d{6}$/.test(value), // التحقق من الرمز البريدي
+      validator: (value: string) => /^\d{6}$/.test(value),
       message: "Pincode must be exactly 6 digits.",
     },
   },
   type: {
     type: String,
     required: true,
-    enum: ["home", "work", "other"], // قيم محددة
+    enum: ["home", "work", "other"],
     default: "home",
   },
 });
 
-// تصدير الموديل
+
 const Address = mongoose.model<IAddress>("Address", AddressSchema);
 export default Address;

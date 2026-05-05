@@ -1,17 +1,31 @@
-import express from 'express';
-import { authorizeRoles, isAuthenticated } from '../middleware/auth';
-import { createOrder, getAllOrders, newPayment, sendStripePublishableKey } from '../controllers/order.controller';
+import express from "express";
+
+import { authorizeRoles, isAuthenticated } from "../middleware/auth.js";
+
+import { createOrder, exportInventory, getAdminOrderDetail, getAdminOrders, getInventoryReport, getLatestTransactions, getMonthlyRevenue, getOrderStatusStats, managerCancelOrder, managerConfirmOrder, trackOrder} from "../controllers/order.controller.js";
 
 const orderRouter = express.Router();
 
-orderRouter.post("/create-order",isAuthenticated,createOrder);
+orderRouter.post("/create-order",isAuthenticated, createOrder);
 
-orderRouter.get("/get-order",isAuthenticated,authorizeRoles("admin", "teacher"),getAllOrders);
+orderRouter.get("/manager-confirm/:orderId" ,isAuthenticated,authorizeRoles("admin"),managerConfirmOrder);
+orderRouter.get("/manager-cancel/:orderId",isAuthenticated,authorizeRoles("admin"), managerCancelOrder);
+orderRouter.get("/admin-orders", isAuthenticated, authorizeRoles("admin"), getAdminOrders);
 
-orderRouter.post("/payment",isAuthenticated,newPayment);
+orderRouter.get("/admin-orders/:id", isAuthenticated, authorizeRoles("admin"), getAdminOrderDetail); 
+orderRouter.get("/track/:orderId",isAuthenticated,trackOrder)
 
-orderRouter.get("/payment/stripepublishablrkey",sendStripePublishableKey);
+orderRouter.get("/get-inventory",isAuthenticated,getInventoryReport)
 
+orderRouter.get("/inventory/export", isAuthenticated, authorizeRoles("admin"),exportInventory);
+orderRouter.get(
+  "/revenue/monthly",
+  isAuthenticated,
+  authorizeRoles("admin"),
+  getMonthlyRevenue
+);
 
-
+orderRouter.get("/dashboard/order-status",isAuthenticated,authorizeRoles("admin"), getOrderStatusStats);
+orderRouter.get("/dashboard/latest-transactions", isAuthenticated,authorizeRoles("admin"),getLatestTransactions);
+    
 export default orderRouter;

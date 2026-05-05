@@ -1,189 +1,161 @@
-import { Request, Response } from 'express';
-import Address from '../models/Address.model';
-import User from '../models/user.model';
-import mongoose from 'mongoose';
-// طريقة لإنشاء عنوان جديد
-export const createAddress = async (req: Request, res: Response) => {
-    try {
-        const { name, contact, area, city, state, landmark, pincode } = req.body;
-        const userId = req.user?._id; // نفترض أن userId يتم تمريره من المصادقة
+import { Request, Response, NextFunction } from "express";
+import User from "../models/user.model.js";
+import Address from "../models/Address.model.js";
+import ErrorHandler from "../utils/ErrorHandler.js";
+import { CatchAsyncError } from "../middleware/catchAsyncError.js";
 
-        // التحقق من وجود userId
-        if (!userId) {
-            return res.status(400).json({
-                success: false,
-                message: 'User ID is required',
-            });
-        }
 
-        // التحقق من أن المستخدم موجود في قاعدة البيانات
-        const user = await User.findById(userId);
-        if (!user) {
-            return res.status(404).json({
-                success: false,
-                message: 'User not found',
-            });
-        }
 
-        // التحقق من وجود الحقول المطلوبة
-        if (!name || !contact || !area || !city || !state || !landmark || !pincode) {
-            return res.status(400).json({
-                success: false,
-                message: 'All fields are required',
-            });
-        }
+export const createAddress = CatchAsyncError(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const userId = req.user?._id;
 
-        // إنشاء السجل الجديد
-        const newAddress = await Address.create({
-            user: userId, // إضافة userId إلى البيانات
-            name,
-            contact,
-            area,
-            city,
-            state,
-            landmark,
-            pincode,
-        });
-
-        res.status(201).json({
-            success: true,
-            message: 'Address added successfully',
-            data: newAddress,
-        });
-    } catch (error:any) {
-        console.error(error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to add address',
-            error: error.message, // إضافة تفاصيل الخطأ لتحسين التصحيح
-        });
-    }
-};
-
-export const getAddress = async (req: Request, res: Response) => {
-    try {
-        const userId = req.user?._id; // افتراض أن `userId` يأتي من المصادقة
-
-        if (!userId) {
-            return res.status(400).json({
-                success: false,
-                message: 'User ID is required',
-            });
-        }
-
-        // البحث عن جميع العناوين المرتبطة بالمستخدم وتعبئة معلومات المستخدم
-        const addresses = await Address.find({ user: userId }).populate('user');
-
-        if (addresses.length === 0) {
-            return res.status(404).json({
-                success: false,
-                message: 'No addresses found',
-            });
-        }
-
-        res.status(200).json({
-            success: true,
-            data: addresses,
-        });
-    } catch (error:any) {
-        console.error(error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to fetch addresses',
-            error: error.message, // إضافة تفاصيل الخطأ لتحسين التصحيح
-        });
+    if (!userId) {
+      return next(new ErrorHandler("User not authenticated", 401));
     }
 
-    
-};
-
-
-export const updateAddress = async (req: Request, res: Response) => {
-    try {
-        const userId = req.user?._id; // الحصول على userId من المستخدم المصادق عليه
-        const { name, contact, area, city, state, landmark, pincode } = req.body;
-
-        // التحقق من وجود userId
-        if (!userId) {
-            return res.status(400).json({
-                success: false,
-                message: 'User ID is required',
-            });
-        }
-
-        // التحقق من وجود العنوان بناءً على userId وبيانات إضافية مثل "name"
-        const address = await Address.findOneAndUpdate({ user: userId, name: name });
-
-        if (!address) {
-            return res.status(404).json({
-                success: false,
-                message: 'Address not found for this user',
-            });
-        }
-
-        // تحديث بيانات العنوان
-        address.contact = contact || address.contact;
-        address.area = area || address.area;
-        address.city = city || address.city;
-        address.state = state || address.state;
-        address.landmark = landmark || address.landmark;
-        address.pincode = pincode || address.pincode;
-
-        await address.save(); // حفظ التعديلات
-
-        res.status(200).json({
-            success: true,
-            message: 'Address updated successfully',
-            data: address,
-        });
-    } catch (error: any) {
-        console.error(error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to update address',
-            error: error.message,
-        });
+    const userExists = await User.findById(userId);
+    if (!userExists) {
+      return next(new ErrorHandler("User not found", 404));
     }
-};
 
+    const {
+      name,
+      contact,
+      area,
+      city,
+      state,
+      landmark,
+      pincode,
+      type = "home",
+    } = req.body;
 
-   
-
-
-
-export const deleteAddress = async (req: Request, res: Response) => {
-    try {
-        const { addressId } = req.params;  // الحصول على addressId من المعلمات
-        const userId = req.user?._id;
-
-        // التحقق من وجود userId
-        if (!userId) {
-            return res.status(400).json({
-                success: false,
-                message: 'User ID is required',
-            });
-        }
-
-        // التحقق من وجود العنوان في قاعدة البيانات
-        const address = await Address.findOneAndDelete({ _id: addressId, user: userId });
-        if (!address) {
-            return res.status(404).json({
-                success: false,
-                message: 'Address not found',
-            });
-        }
-
-        res.status(200).json({
-            success: true,
-            message: 'Address deleted successfully',
-        });
-    } catch (error: any) {
-        console.error(error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to delete address',
-            error: error.message,
-        });
+    if (
+      !name ||
+      !contact ||
+      !area ||
+      !city ||
+      !state ||
+      !landmark ||
+      !pincode
+    ) {
+      return next(new ErrorHandler("All fields are required", 400));
     }
+
+    const address = await Address.create({
+      user: userId,
+      name,
+      contact,
+      area,
+      city,
+      state,
+      landmark,
+      pincode,
+      type,
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Address created successfully",
+      address,
+    });
+  }
+);
+// get Address
+
+export const getAddress = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const userId = req.user?._id;
+
+    if (!userId) {
+      return next(new ErrorHandler("User not authenticated", 401));
+    }
+
+    const addresses = await Address.find({ user: userId }).lean();
+
+    res.status(200).json({
+      success: true,
+      count: addresses.length,
+      data: addresses,
+    });
+  } catch (error: any) {
+    return next(new ErrorHandler(error.message, 500));
+  }
 };
 
+// update address
+export const updateAddress = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const userId = req.user?._id;
+    const { addressId } = req.params;
+
+    if (!userId) {
+      return next(new ErrorHandler("User not authenticated", 401));
+    }
+
+    const address = await Address.findOne({
+      _id: addressId,
+      user: userId,
+    });
+
+    if (!address) {
+      return next(new ErrorHandler("Address not found", 404));
+    }
+
+    const updatedAddress = await Address.findByIdAndUpdate(
+      addressId,
+      {
+        $set: req.body, // 🔥 clean update
+      },
+      { new: true },
+    );
+
+    res.json({
+      success: true,
+      message: "Address updated successfully",
+      data: updatedAddress,
+    });
+  } catch (err: any) {
+    next(new ErrorHandler(err.message, 500));
+  }
+};
+
+// delete address
+export const deleteAddress = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const userId = req.user?._id;
+    const { addressId } = req.params;
+
+    if (!userId) {
+      return next(new ErrorHandler("User not authenticated", 401));
+    }
+
+    const address = await Address.findOneAndDelete({
+      _id: addressId,
+      user: userId,
+    });
+
+    if (!address) {
+      return next(new ErrorHandler("Address not found", 404));
+    }
+
+    res.json({
+      success: true,
+      message: "Address deleted successfully",
+    });
+  } catch (err: any) {
+    next(new ErrorHandler(err.message, 500));
+  }
+};

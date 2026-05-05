@@ -1,18 +1,20 @@
-import express from 'express';
-import { createAddress, getAddress, updateAddress } from '../controllers/address.controller';
-import { isAuthenticated } from '../middleware/auth';
+import express from "express";
+
+import { isAuthenticated } from "../middleware/auth.js";
+import { createAddress, deleteAddress, getAddress, updateAddress } from "../controllers/address.controller.js";
+import { updateAccessToken } from "../controllers/user.controller.js";
 
 
-const addressrouter = express.Router();
+const addressRouter = express.Router();
 
-addressrouter.post('/addresses',isAuthenticated, createAddress);
+addressRouter.post("/create-address", updateAccessToken,isAuthenticated,createAddress);
 
-addressrouter.get('/get-addresses',isAuthenticated, getAddress);
+addressRouter.get("/get-all-address",updateAccessToken,isAuthenticated,getAddress)
 
-addressrouter.put('/update-addresses',isAuthenticated, updateAddress);
+addressRouter.patch("/update-address/:addressId",updateAccessToken,isAuthenticated,updateAddress)
+
+addressRouter.delete("/delete-address/:addressId",updateAccessToken,isAuthenticated,deleteAddress)
 
 
 
-
-
-export default addressrouter;
+export default addressRouter;

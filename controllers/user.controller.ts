@@ -1,27 +1,30 @@
 import { Request, Response, NextFunction } from "express";
-import userModel, { IUser } from "../models/user.model";
-import ErrorHandler from "../utils/ErrorHandler";
-import { CatchAsyncError } from "../middleware/catchAsyncError";
+
+import { CatchAsyncError } from "../middleware/catchAsyncError.js";
 import jwt, { JwtPayload, Secret } from "jsonwebtoken";
 import ejs from "ejs";
 import path from "path";
-import sendMail from "../utils/sendMail";
+import sendMail from "../utils/sendMail.js";
 import cloudinary from "cloudinary";
 import {
   accessTokenOptions,
   refreshTokenOptions,
   sendToken,
-} from "../utils/jwt";
+} from "../utils/jwt.js";
 // import { redis } from "../utils/redis";
 import {
   getAllUsersService,
   getUserById,
   updateUserRoleService,
-} from "../services/user.service";
+} from "../services/user.service.js";
+import ErrorHandler from "../utils/ErrorHandler.js";
+import dotenv from "dotenv";
+import userModel, { IUser } from "../models/user.model.js";
+import { odooRequest } from "../odoo/odoo.client.js";
+import mongoose from "mongoose";
+import orderModel from "../models/order.model.js";
 
-require("dotenv").config();
-
-
+dotenv.config();
 
 //register user
 interface IRegistrationBody {
@@ -29,13 +32,17 @@ interface IRegistrationBody {
   email: string;
   password: string;
   avatar?: string;
-  role:string
+  role: string;
 }
 
 export const registrationUser = CatchAsyncError(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { name, email, password ,role = "user"} = req.body;
+      const { name, email, password, role = "user" } = req.body;
+      if (!name || !email || !password) {
+        return next(new ErrorHandler("All fields are required", 400));
+      }
+
       const isEmailExist = await userModel.findOne({ email });
       if (isEmailExist) {
         return next(new ErrorHandler("Email is already exist", 400));
@@ -50,11 +57,6 @@ export const registrationUser = CatchAsyncError(
       const activationCode = activationToken.activationCode;
       const data = { user: { name: user.name }, activationCode };
 
-      //مسار البريد الالكتروني
-      const html = await ejs.renderFile(
-        path.join(__dirname, "../mails/activation-mail.ejs"),
-        data
-      );
       try {
         await sendMail({
           email: user.email,
@@ -73,8 +75,9 @@ export const registrationUser = CatchAsyncError(
     } catch (error: any) {
       return next(new ErrorHandler(error.message, 400));
     }
-  }
+  },
 );
+
 interface IActivationToken {
   token: string;
   activationCode: string;
@@ -88,10 +91,10 @@ export const createActivationToken = (user: any): IActivationToken => {
       user,
       activationCode,
     },
-    process.env.ACTIVITION_SECRET as Secret,
+    process.env.ACTIVATION_SECRET as Secret,
     {
       expiresIn: "5m",
-    }
+    },
   );
   return { token, activationCode };
 };
@@ -104,15 +107,13 @@ interface IActivationRequest {
 export const activateUser = CatchAsyncError(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      // عرض البيانات الواردة لفحص المشكلة
-      console.log("Request Body:", req.body);
-
       const { activation_code, activation_token } =
         req.body as IActivationRequest;
 
-      // تحقق من وجود القيم المطلوبة
       if (!activation_token || !activation_code) {
-        return next(new ErrorHandler("Activation token and code are required", 400));
+        return next(
+          new ErrorHandler("Activation token and code are required", 400),
+        );
       }
 
       const newUser: {
@@ -120,7 +121,7 @@ export const activateUser = CatchAsyncError(
         activationCode: string;
       } = jwt.verify(
         activation_token,
-        process.env.ACTIVITION_SECRET as string
+        process.env.ACTIVATION_SECRET as string,
       ) as { user: IUser; activationCode: string };
 
       if (newUser.activationCode !== activation_code) {
@@ -134,23 +135,48 @@ export const activateUser = CatchAsyncError(
         return next(new ErrorHandler("Email is already exist", 400));
       }
 
+      //  create user first
       const user = await userModel.create({
         name,
         email,
         password,
       });
 
+      let partnerId: number;
+
+      try {
+        //create partner in Odoo
+        partnerId = await odooRequest("res.partner", "create", [
+          {
+            name: user.name,
+            email: user.email,
+          },
+        ]);
+      } catch (err) {
+        console.error("❌ Odoo error:", err);
+
+        // 🔥 IMPORTANT: rollback user
+        await user.deleteOne();
+
+        return next(new ErrorHandler("Failed to sync with Odoo", 500));
+      }
+
+      // save partner id
+      user.odooPartnerId = Number(partnerId);
+      await user.save();
+
       res.status(201).json({
         success: true,
+        message: "User activated and synced with Odoo",
       });
     } catch (error: any) {
       console.error("Activation Error:", error);
-      return next(new ErrorHandler(error.message || "Something went wrong", 400));
+      return next(
+        new ErrorHandler(error.message || "Something went wrong", 400),
+      );
     }
-  }
+  },
 );
-
-
 
 //login user
 interface ILoginRequest {
@@ -164,7 +190,7 @@ export const loginUser = CatchAsyncError(
 
       if (!email || !password) {
         return next(
-          new ErrorHandler("Please enter your email and password ", 400)
+          new ErrorHandler("Please enter your email and password ", 400),
         );
       }
       const user = await userModel.findOne({ email }).select("+password");
@@ -177,14 +203,13 @@ export const loginUser = CatchAsyncError(
       if (!isPasswordMatch) {
         return next(new ErrorHandler("Invalid email or password", 400));
       }
-      
 
       sendToken(user, 200, res);
       user.save();
     } catch (error: any) {
       return next(new ErrorHandler(error.message, 400));
     }
-  }
+  },
 );
 
 //logout user
@@ -194,7 +219,7 @@ export const logoutUser = CatchAsyncError(
       res.cookie("access_token", "", { maxAge: 1 });
       res.cookie("refresh_token", "", { maxAge: 1 });
       const userId = req.user?._id || "";
-      await userModel.findByIdAndDelete(userId);
+      
       res.status(200).json({
         success: true,
         message: "Logged out is successfully",
@@ -202,7 +227,7 @@ export const logoutUser = CatchAsyncError(
     } catch (error: any) {
       return next(new ErrorHandler(error.message, 400));
     }
-  }
+  },
 );
 
 //update access token
@@ -212,13 +237,14 @@ export const updateAccessToken = CatchAsyncError(
       const refresh_token = req.cookies.refresh_token as string;
       const decoded = jwt.verify(
         refresh_token,
-        process.env.REFRESH_TOKEN as string
+        process.env.REFRESH_TOKEN as string,
       ) as JwtPayload;
 
       const message = "Could not refresh token";
       if (!decoded) {
         return next(new ErrorHandler(message, 400));
       }
+
       const user = await userModel.findById(decoded.id);
 
       if (!user) {
@@ -231,7 +257,7 @@ export const updateAccessToken = CatchAsyncError(
         process.env.ACCESS_TOKEN as string,
         {
           expiresIn: "5m",
-        }
+        },
       );
 
       const refreshToken = jwt.sign(
@@ -241,7 +267,7 @@ export const updateAccessToken = CatchAsyncError(
         process.env.REFRESH_TOKEN as string,
         {
           expiresIn: "3d",
-        }
+        },
       );
 
       req.user = user;
@@ -249,39 +275,42 @@ export const updateAccessToken = CatchAsyncError(
       res.cookie("access_token", accessToken, accessTokenOptions);
       res.cookie("refresh_token", refreshToken, refreshTokenOptions);
 
-     next();
+      next();
     } catch (error: any) {
       return next(new ErrorHandler(error.message, 400));
     }
-  }
+  },
 );
 
-//update user info
-interface IUpdateUserInfo {
-  name?: string;
-  email?: string;
-}
-
+// update user info
 export const updateUserInfo = CatchAsyncError(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { name } = req.body as IUpdateUserInfo;
+      const { name, phone, address } = req.body;
+
       const userId = req.user?._id;
+
       const user = await userModel.findById(userId);
 
       if (!user) {
         return next(new ErrorHandler("User not found", 404));
       }
 
-      
+      if (name) user.name = name;
+      if (phone) user.phone = phone;
 
-      if (name && user) {
-        user.name = name;
+      if (address) {
+        user.address = {
+          street: address.street,
+          city: address.city,
+          country: address.country,
+          zip: address.zip,
+        } as any;
       }
-      await user?.save();
-      await userModel.findByIdAndUpdate(userId, user);
 
-      res.status(201).json({
+      await user.save();
+
+      res.status(200).json({
         success: true,
         user,
       });
@@ -290,7 +319,6 @@ export const updateUserInfo = CatchAsyncError(
     }
   }
 );
-
 //get user Info
 
 export const getUserInfo = CatchAsyncError(
@@ -301,7 +329,7 @@ export const getUserInfo = CatchAsyncError(
     } catch (error: any) {
       return next(new ErrorHandler(error.message, 400));
     }
-  }
+  },
 );
 
 // social auth
@@ -324,7 +352,7 @@ export const socialAuth = CatchAsyncError(
     } catch (error: any) {
       return next(new ErrorHandler(error.message, 400));
     }
-  }
+  },
 );
 
 //update user password
@@ -340,7 +368,7 @@ export const updatePassword = CatchAsyncError(
 
       if (!oldPassword || !newPassword) {
         return next(
-          new ErrorHandler("Please inter your old and new password", 400)
+          new ErrorHandler("Please inter your old and new password", 400),
         );
       }
 
@@ -368,14 +396,10 @@ export const updatePassword = CatchAsyncError(
     } catch (error: any) {
       return next(new ErrorHandler(error.message, 400));
     }
-  }
+  },
 );
 
 //update profile picture
-
-interface IUpdateProfilePicture {
-  avatar: string;
-}
 
 export const updateProfilePicture = CatchAsyncError(
   async (req: Request, res: Response, next: NextFunction) => {
@@ -423,48 +447,53 @@ export const updateProfilePicture = CatchAsyncError(
   }
 );
 
+
 //get all users === only for admin
 export const getAllUsers = CatchAsyncError(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-
       const userRole = req.user?.role;
 
-      if (userRole !== 'admin') {
-        return next(new ErrorHandler("You are not authorized to view all users", 403));
+      if (userRole !== "admin") {
+        return next(
+          new ErrorHandler("You are not authorized to view all users", 403),
+        );
       }
       getAllUsersService(res);
     } catch (error: any) {
       return next(new ErrorHandler(error.message, 400));
     }
-  }
+  },
 );
 
-//update user role == only for admin
+// update user role === only for admin
 export const updateUserRole = CatchAsyncError(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const userRole = req.user?.role;
 
-      if (userRole !== 'admin') {
-        return next(new ErrorHandler("You are not authorized to update user roles", 403));
+      if (userRole !== "admin") {
+        return next(
+          new ErrorHandler("You are not authorized to update user roles", 403),
+        );
       }
-      const {email, role } = req.body;
-      const isUserExist = await userModel.findOne({email});
-      if(isUserExist){
-        const id= isUserExist._id
-        updateUserRoleService(res,id, role);
-      }else{
-        res.status(400).json({
-          success:false,
-          message:"User Not Found"
-        })
+
+      const { id, role } = req.body;
+
+      const isUserExist = await userModel.findById(id);
+
+      if (!isUserExist) {
+        return res.status(400).json({
+          success: false,
+          message: "User Not Found",
+        });
       }
-      
+
+      await updateUserRoleService(res, id.toString(), role);
     } catch (error: any) {
       return next(new ErrorHandler(error.message, 400));
     }
-  }
+  },
 );
 
 //Delete user === only admin
@@ -473,8 +502,10 @@ export const deleteUser = CatchAsyncError(
     try {
       const userRole = req.user?.role;
 
-      if (userRole !== 'admin') {
-        return next(new ErrorHandler("You are not authorized to delete users", 403));
+      if (userRole !== "admin") {
+        return next(
+          new ErrorHandler("You are not authorized to delete users", 403),
+        );
       }
       const { id } = req.params;
       const user = await userModel.findById(id);
@@ -489,14 +520,12 @@ export const deleteUser = CatchAsyncError(
     } catch (error: any) {
       return next(new ErrorHandler(error.message, 400));
     }
-  }
+  },
 );
 
-
-// الوصول إلى المستخدم بناءً على دوره
 export const checkUserRole = (role: string) => {
   return (req: Request, res: Response, next: NextFunction) => {
-    const userRole = req.user?.role;  // جلب الدور من المستخدم
+    const userRole = req.user?.role;
     if (userRole !== role) {
       return next(new ErrorHandler("You are not authorized", 403));
     }
@@ -504,3 +533,157 @@ export const checkUserRole = (role: string) => {
   };
 };
 
+
+export const getTopSpenders = async (req:Request, res:Response) => {
+  const users = await userModel.aggregate([
+    {
+      $lookup: {
+        from: "orders",
+        localField: "_id",
+        foreignField: "userId",
+        as: "orders",
+      },
+    },
+    {
+      $addFields: {
+        totalSpent: {
+          $sum: "$orders.totalPrice",
+        },
+      },
+    },
+    { $sort: { totalSpent: -1 } },
+    { $limit: 5 },
+  ]);
+
+  res.json(users);
+};
+
+
+
+export const getMostActiveUsers = CatchAsyncError(
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const users = await userModel.aggregate([
+        {
+          $lookup: {
+            from: "orders",
+            localField: "_id",
+            foreignField: "userId",
+            as: "orders",
+          },
+        },
+        {
+          $addFields: {
+            ordersCount: { $size: "$orders" },
+          },
+        },
+        { $sort: { ordersCount: -1 } },
+        { $limit: 5 },
+        {
+          $project: {
+            name: 1,
+            email: 1,
+            avatar: 1,
+            ordersCount: 1,
+            createdAt: 1,
+          },
+        },
+      ]);
+
+      res.status(200).json({ success: true, users });
+    } catch (error: any) {
+      return next(new ErrorHandler(error.message, 500));
+    }
+  }
+);
+
+
+export const getRecentUsers = CatchAsyncError(
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const users = await userModel
+        .find()
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .select("name email avatar createdAt"); // only what you need
+
+      res.status(200).json({ success: true, users });
+    } catch (error: any) {
+      return next(new ErrorHandler(error.message, 500));
+    }
+  }
+);
+
+
+
+
+// user.controller.ts
+export const getRegistrationsPerMonth = CatchAsyncError(
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const users = await userModel.find({}, { createdAt: 1 });
+
+      // Use "YYYY-MM" as key for reliable sorting
+      const monthMap: Record<string, { label: string; count: number }> = {};
+
+      for (const user of users) {
+        const date = new Date(user.createdAt);
+        const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`; // "2025-01"
+        const label = date.toLocaleString("default", { month: "long", year: "numeric" }); // "January 2025"
+
+        if (!monthMap[yearMonth]) {
+          monthMap[yearMonth] = { label, count: 0 };
+        }
+        monthMap[yearMonth].count += 1;
+      }
+
+      const sorted = Object.entries(monthMap)
+        .sort(([a], [b]) => a.localeCompare(b)) // "2025-01" sorts correctly as string
+        .slice(-6)
+        .map(([_, val]) => ({ month: val.label, count: val.count }));
+
+      res.status(200).json({ success: true, data: sorted });
+    } catch (error: any) {
+      return next(new ErrorHandler(error.message, 500));
+    }
+  }
+);
+
+
+
+export const getUserActivity = async (req:Request, res:Response) => {
+  try {
+    const { id } = req.params;
+
+    const data = await orderModel.aggregate([
+      {
+        $match: {
+          userId: new mongoose.Types.ObjectId(id),
+        },
+      },
+      {
+        $group: {
+          _id: {
+            month: { $month: "$createdAt" },
+            year: { $year: "$createdAt" },
+          },
+          orders: { $sum: 1 },
+          spent: { $sum: "$totalPrice" },
+        },
+      },
+      {
+        $sort: { "_id.year": 1, "_id.month": 1 },
+      },
+    ]);
+
+    const formatted = data.map((d) => ({
+      month: `${d._id.year}-${d._id.month}`,
+      orders: d.orders,
+      spent: d.spent,
+    }));
+
+    res.json({ data: formatted });
+  } catch (err:any) {
+    res.status(500).json({ message: err.message });
+  }
+};

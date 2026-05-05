@@ -1,74 +1,85 @@
-import express,{NextFunction, Request, Response} from "express";
-export const app = express();
+import express, { NextFunction, Request, Response } from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
-import { ErrorMiddleware } from "./middleware/error";
-require("dotenv").config();
-import userRouter from "./routes/user.route";
-import courseRouter from "./routes/course.route";
-import orderRouter from "./routes/order.route";
-import notificationRoute from "./routes/notification.route";
-import analyicsRouter from "./routes/analytics.route";
-import layoutRouter from "./routes/layout.route";
-import { rateLimit } from 'express-rate-limit'
-import categoryRouter from "./routes/categories.route";
-import bookRouter from "./routes/book.route";
-import OrderItem from "./models/OrderItem.Model";
+import dotenv from "dotenv";
+import { rateLimit } from "express-rate-limit";
 
-import Itemrouter from "./routes/orderItem.route";
-import router from "./routes/orderbook.route";
-import orderbookRouter from "./routes/orderbook.route";
-import addressrouter from "./routes/address.route";
+dotenv.config();
 
-import postRouter from "./routes/post.route";
+import userRouter from "./routes/user.route.js";
+import productRouter from "./routes/product.route.js";
+import orderRouter from "./routes/order.route.js";
+import addressRouter from "./routes/address.route.js";
+
+import { ErrorMiddleware } from "./middleware/error.js";
+import categoryRouter from "./routes/categories.route.js";
+import contactRouter from "./routes/contact.route.js";
+import reportRouter from "./routes/reportRoutes.js";
 
 
+export const app = express();
 
-//body parser
-app.use(express.json());
+// ======================
+// 🔥 GLOBAL MIDDLEWARES
+// ======================
 
-//cookie parser
+// body parser
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+
+// cookies
 app.use(cookieParser());
 
-//cors => cross origin resource sharing 
-app.use(cors({
-    origin:['http://localhost:3000'],
-    credentials: true, 
-}));
+// cors
+app.use(
+  cors({
+    origin: ["http://localhost:3000","http://localhost:3001"],
+    credentials: true,
+  })
+);
 
-
-
-
-//api requests limit
+// rate limit
 const limiter = rateLimit({
-	windowMs: 15 * 60 * 1000, // 15 minutes
-	limit: 100, // Limit each IP to 100 requests per `window` (here, per 15 minutes).
-	standardHeaders: 'draft-7', // draft-6: `RateLimit-*` headers; draft-7: combined `RateLimit` header
-	legacyHeaders: false, // Disable the `X-RateLimit-*` headers.
-	// store: ... , // Redis, Memcached, etc. See below.
-})
+  windowMs: 15 * 60 * 1000,
+  limit: 100,
+});
+app.use(limiter);
+app.set("trust proxy", 1);
+// ======================
+// ROUTES
+// ======================
 
-//routes
-app.use("/api/v1",userRouter,orderRouter,courseRouter,notificationRoute,analyicsRouter,layoutRouter,categoryRouter,bookRouter,orderbookRouter,Itemrouter,addressrouter,postRouter);
+app.use("/api/v1", userRouter);
+app.use("/api/v1", productRouter);
+app.use("/api/v1", orderRouter);
+app.use("/api/v1", addressRouter);
+app.use("/api/v1",categoryRouter);
+app.use("/api/v1",contactRouter);
+app.use("/api/v1",reportRouter);
 
 
 
-//testing api
-app.get("/test",( req:Request , res:Response , next : NextFunction) =>{
-res.status(200).json({
-    success:true,
-    message:"API is working!",
+// test route
+app.get("/test", (req: Request, res: Response) => {
+  res.json({
+    success: true,
+    message: "API is working!",
   });
 });
 
-//unknoun route
-app.all("*", (req:Request , res:Response , next:NextFunction) =>{
-    const err = new Error(`Route ${req.originalUrl} not found`) as any;
-    err.statusCode =404;
-    next(err);
+// ======================
+// ❌ NOT FOUND ROUTE
+// ======================
+
+app.all("*", (req: Request, res: Response, next: NextFunction) => {
+  const err = new Error(`Route ${req.originalUrl} not found`) as any;
+  err.statusCode = 404;
+  next(err);
 });
 
-//middleware calls
-app.use(limiter);
+// ======================
+// ❌ ERROR MIDDLEWARE
+// ======================
 
 app.use(ErrorMiddleware);
+

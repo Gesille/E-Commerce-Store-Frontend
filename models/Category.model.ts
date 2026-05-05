@@ -6,6 +6,7 @@ export interface ICategory extends Document {
   catDesc: string;
   createdAt?: Date; // Optional: managed by Mongoose
   updatedAt?: Date; // Optional: managed by Mongoose
+  odooCategoryId?: number;
 }
 
 // Define the schema for the Category model
@@ -19,6 +20,10 @@ const CategorySchema: Schema<ICategory> = new Schema(
       type: String,
       required: true,
     },
+    odooCategoryId:{
+      type:Number,
+      
+    }
   },
   { timestamps: true }
 );

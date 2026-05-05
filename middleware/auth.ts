@@ -1,9 +1,11 @@
 import { Request, Response, NextFunction } from "express";
-import { CatchAsyncError } from "./catchAsyncError";
-import ErrorHandler from "../utils/ErrorHandler";
+import { CatchAsyncError } from "./catchAsyncError.js";
+
 import jwt, { JwtPayload } from "jsonwebtoken";
-import userModel from "../models/user.model";
-import { updateAccessToken } from "../controllers/user.controller";
+
+import { updateAccessToken } from "../controllers/user.controller.js";
+import ErrorHandler from "../utils/ErrorHandler.js";
+import userModel from "../models/user.model.js";
 
 // التوثيق (Authentication)
 export const isAuthenticated = CatchAsyncError(
@@ -17,15 +19,15 @@ export const isAuthenticated = CatchAsyncError(
     }
 
     try {
-      // التحقق من التوكن باستخدام verify
+      
       const decoded = jwt.verify(access_token, process.env.ACCESS_TOKEN as string) as JwtPayload;
 
-      // التحقق من صلاحية التوكن
+      
       if (decoded.exp && decoded.exp <= Date.now() / 1000) {
         console.log("Access token expired, updating...")
-        await updateAccessToken(req, res, next);  // تحديث التوكن إذا كان منتهي
+        await updateAccessToken(req, res, next);  
       } else {
-        // الحصول على المستخدم بناءً على ID المخزن في التوكن
+      
         const user = await userModel.findById(decoded.id);
         if (!user) {
           return next(new ErrorHandler("User not found", 400));
